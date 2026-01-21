@@ -51,6 +51,77 @@ def run_ocr(image):
     return ocr_agent.ocr(image)
 
 
+def normalize_box(box):
+    if not box:
+        return None
+
+    if isinstance(box, (list, tuple)) and len(box) == 4 and all(
+        isinstance(v, (int, float)) for v in box
+    ):
+        x1, y1, x2, y2 = box
+        return [int(min(x1, x2)), int(min(y1, y2)), int(max(x1, x2)), int(max(y1, y2))]
+
+    if isinstance(box, (list, tuple)) and box and isinstance(box[0], (list, tuple)):
+        points = [p for p in box if isinstance(p, (list, tuple)) and len(p) >= 2]
+        if not points:
+            return None
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        return [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))]
+
+    return None
+
+
+def parse_ocr_result(ocr_result):
+    if not ocr_result:
+        return []
+
+    lines = ocr_result
+    if isinstance(ocr_result, list) and len(ocr_result) == 1 and isinstance(ocr_result[0], list):
+        lines = ocr_result[0]
+
+    parsed = []
+    for line in lines:
+        box = None
+        text = ""
+        score = 0.0
+
+        if isinstance(line, dict):
+            box = line.get("points") or line.get("bbox") or line.get("box")
+            text = line.get("text") or ""
+            score = line.get("score", 0.0)
+        elif isinstance(line, (list, tuple)):
+            if len(line) >= 2:
+                box = line[0]
+                meta = line[1]
+                if isinstance(meta, (list, tuple)):
+                    if len(meta) > 0 and meta[0] is not None:
+                        text = meta[0]
+                    if len(meta) > 1 and meta[1] is not None:
+                        score = meta[1]
+                elif isinstance(meta, dict):
+                    text = meta.get("text") or ""
+                    score = meta.get("score", 0.0)
+                elif meta is not None:
+                    text = str(meta)
+            elif len(line) == 1:
+                box = line[0]
+
+        rect = normalize_box(box)
+        if rect is None:
+            continue
+
+        parsed.append(
+            {
+                "text": text,
+                "bbox": rect,
+                "score": float(score) if score is not None else 0.0,
+            }
+        )
+
+    return parsed
+
+
 def draw_boxes(image_path, boxes):
     image = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(image)
@@ -81,9 +152,8 @@ def process_image(image_path):
                 continue
             crop = image_bgr[y1:y2, x1:x2]
             ocr_result = run_ocr(crop)
-            text_str = ""
-            if ocr_result and ocr_result[0]:
-                text_str = " ".join([line[1][0] for line in ocr_result[0]])
+            ocr_items = parse_ocr_result(ocr_result)
+            text_str = " ".join([item["text"] for item in ocr_items if item["text"]])
 
             results.append(
                 {
@@ -95,24 +165,16 @@ def process_image(image_path):
             boxes.append([x1, y1, x2, y2])
     else:
         ocr_result = run_ocr(image_bgr)
-        if ocr_result and ocr_result[0]:
-            for line in ocr_result[0]:
-                if not line or len(line) < 2:
-                    continue
-                box = line[0]
-                text = line[1][0]
-                score = line[1][1]
-                xs = [p[0] for p in box]
-                ys = [p[1] for p in box]
-                x1, y1, x2, y2 = int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
-                results.append(
-                    {
-                        "text": text,
-                        "bbox": [x1, y1, x2, y2],
-                        "block_score": float(score),
-                    }
-                )
-                boxes.append([x1, y1, x2, y2])
+        ocr_items = parse_ocr_result(ocr_result)
+        for item in ocr_items:
+            results.append(
+                {
+                    "text": item["text"],
+                    "bbox": item["bbox"],
+                    "block_score": float(item["score"]),
+                }
+            )
+            boxes.append(item["bbox"])
 
     return results, boxes
 
