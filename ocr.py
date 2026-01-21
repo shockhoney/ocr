@@ -1,60 +1,115 @@
-import os
+﻿import os
 import json
 import argparse
-from PIL import Image
+from PIL import Image, ImageDraw
 import cv2
-import layoutparser as lp
+
+try:
+    import layoutparser as lp
+except Exception:
+    lp = None
+
 from paddleocr import PaddleOCR
 
-# =============================
-# 1. 加载 Layout 模型
-# =============================
 
-# 使用 PubLayNet 模型代替 Detectron2LayoutModel
-model = lp.PubLayNetLayoutModel()
+def build_layout_model():
+    if lp is None:
+        return None
 
-# 加载 PaddleOCR 引擎
-ocr_agent = PaddleOCR(use_angle_cls=True, lang='en')  # 如果需要其他语言可修改lang
+    if hasattr(lp, "PubLayNetLayoutModel"):
+        try:
+            return lp.PubLayNetLayoutModel()
+        except Exception:
+            pass
 
-# =============================
-# 2. 处理一张图像
-# =============================
+    if hasattr(lp, "Detectron2LayoutModel"):
+        try:
+            return lp.Detectron2LayoutModel(
+                "lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config",
+                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
+                label_map={
+                    0: "Text",
+                    1: "Title",
+                    2: "List",
+                    3: "Table",
+                    4: "Figure",
+                },
+            )
+        except Exception:
+            return None
+
+    return None
+
+
+model = build_layout_model()
+ocr_agent = PaddleOCR(use_angle_cls=True, lang="en")
+
+
+def draw_boxes(image_path, boxes):
+    image = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    for x1, y1, x2, y2 in boxes:
+        draw.rectangle([x1, y1, x2, y2], outline="green", width=3)
+    return image
+
 
 def process_image(image_path):
-    # 读取 image
-    image = cv2.imread(image_path)
-    image_rgb = image[..., ::-1]  # BGR→RGB for layoutparser
+    image_bgr = cv2.imread(image_path)
+    if image_bgr is None:
+        raise ValueError(f"Failed to read image: {image_path}")
 
-    # 布局检测：得到一组 TextBlock
-    layout = model.detect(image_rgb)
-
-    # 只保留 “Text” 类型区域
-    text_blocks = layout.filter_by(label="Text")
-
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     results = []
+    boxes = []
 
-    # 对每个识别到的文本区域做 OCR
-    for block in text_blocks:
-        x1, y1, x2, y2 = map(int, block.coordinates)
-        crop = image_rgb[y1:y2, x1:x2]  # region crop
+    if model is not None:
+        layout = model.detect(image_rgb)
+        try:
+            text_blocks = layout.filter_by(label="Text")
+        except Exception:
+            text_blocks = layout
 
-        # 使用 PaddleOCR 对文本区域进行 OCR 识别
-        ocr_result = ocr_agent.ocr(crop, cls=True)
+        for block in text_blocks:
+            x1, y1, x2, y2 = map(int, block.coordinates)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            crop = image_bgr[y1:y2, x1:x2]
+            ocr_result = ocr_agent.ocr(crop, cls=True)
+            text_str = ""
+            if ocr_result and ocr_result[0]:
+                text_str = " ".join([line[1][0] for line in ocr_result[0]])
 
-        # 获取 OCR 结果并合并为字符串
-        text_str = " ".join([line[1][0] for line in ocr_result[0]])
+            results.append(
+                {
+                    "text": text_str,
+                    "bbox": [x1, y1, x2, y2],
+                    "block_score": float(getattr(block, "score", 0.0)),
+                }
+            )
+            boxes.append([x1, y1, x2, y2])
+    else:
+        ocr_result = ocr_agent.ocr(image_bgr, cls=True)
+        if ocr_result and ocr_result[0]:
+            for line in ocr_result[0]:
+                if not line or len(line) < 2:
+                    continue
+                box = line[0]
+                text = line[1][0]
+                score = line[1][1]
+                xs = [p[0] for p in box]
+                ys = [p[1] for p in box]
+                x1, y1, x2, y2 = int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))
+                results.append(
+                    {
+                        "text": text,
+                        "bbox": [x1, y1, x2, y2],
+                        "block_score": float(score),
+                    }
+                )
+                boxes.append([x1, y1, x2, y2])
 
-        results.append({
-            "text": text_str,
-            "bbox": [x1, y1, x2, y2],
-            "block_score": float(block.score)
-        })
+    return results, boxes
 
-    return results, layout
-
-# =============================
-# 3. 批量处理目录
-# =============================
 
 def batch_process(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -66,32 +121,27 @@ def batch_process(input_dir, output_dir):
         if f.lower().endswith((".png", ".jpg", ".jpeg"))
     ]
 
+    if model is None:
+        print("[WARN] Layout model unavailable; using PaddleOCR detection only.")
+
     for img_name in image_files:
         path = os.path.join(input_dir, img_name)
-        results, layout = process_image(path)
+        results, boxes = process_image(path)
 
-        # 输出 JSON
         json_file = os.path.splitext(img_name)[0] + ".json"
         with open(os.path.join(output_dir, json_file), "w", encoding="utf-8") as fp:
             json.dump(results, fp, ensure_ascii=False, indent=2)
 
-        # 可视化 Layout 检测 & OCR 文本框
-        vis_img = layout.draw(
-            image=Image.open(path),
-            box_width=3,
-            box_color="green",
-            show_element_id=False
-        )
+        vis_img = draw_boxes(path, boxes)
         vis_img.save(os.path.join(vis_dir, img_name))
 
         print(f"[OK] {img_name} -> {len(results)} text blocks")
 
-if __name__ == "__main__":
-    import argparse
 
+if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input_dir", required=True, help="待处理图片文件夹路径")
-    ap.add_argument("--output_dir", default="layout_output", help="输出结果目录")
+    ap.add_argument("--input_dir", required=True, help="Input image directory")
+    ap.add_argument("--output_dir", default="layout_output", help="Output directory")
     args = ap.parse_args()
 
     batch_process(args.input_dir, args.output_dir)
