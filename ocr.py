@@ -10,12 +10,8 @@ from paddleocr import PaddleOCR
 # 1. 加载 Layout 模型
 # =============================
 
-# 选择一个预训练布局检测模型，可以换成其他比如 Detectron2
-model = lp.Detectron2LayoutModel(
-    "lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config",
-    extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
-    label_map={0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}
-)
+# 使用 PubLayNet 模型代替 Detectron2LayoutModel
+model = lp.PubLayNetLayoutModel()
 
 # 加载 PaddleOCR 引擎
 ocr_agent = PaddleOCR(use_angle_cls=True, lang='en')  # 如果需要其他语言可修改lang
