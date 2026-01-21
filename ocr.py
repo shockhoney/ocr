@@ -42,9 +42,9 @@ def process_image(image_path):
         print(f"[WARN] Cannot read {image_path}")
         return
 
-    # OCR识别
+    # 使用predict方法代替ocr
     result = ocr.ocr(image_path, cls=True)
-    
+
     # 解析OCR输出
     items = []
     for line in result[0]:
@@ -105,6 +105,6 @@ def draw_vis(img, items):
 
 # 批量处理文件夹
 if __name__ == "__main__":
-    input_folder = 'main_file' 
-    output_folder = 'ocr_output' 
+    input_folder = 'main_file'  # 输入图片文件夹路径
+    output_folder = 'ocr_output'  # 输出结果文件夹路径
     process_folder(input_folder, output_folder)
