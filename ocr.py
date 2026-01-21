@@ -184,6 +184,22 @@ def merge_by_lines(items: List[Dict[str, Any]], y_overlap_th: float = 0.6, x_gap
     return merged_all
 
 # -----------------------------
+# 提取OCR结果的函数
+# -----------------------------
+def extract_res_objects(raw):
+    """
+    兼容 PaddleOCR.predict 的不同返回结构，统一抽取 res 字段
+    """
+    outs = [raw] if isinstance(raw, dict) else raw
+    res_list = []
+    for out in outs:
+        if isinstance(out, dict) and "res" in out:
+            res_list.append(out["res"])
+        else:
+            res_list.append(out)
+    return res_list
+
+# -----------------------------
 # 保存输出文件
 # -----------------------------
 def save_output(merged_items, img, vis_path, json_path):
