@@ -45,6 +45,12 @@ model = build_layout_model()
 ocr_agent = PaddleOCR(use_angle_cls=True, lang="en")
 
 
+def run_ocr(image):
+    if hasattr(ocr_agent, "predict"):
+        return ocr_agent.predict(image)
+    return ocr_agent.ocr(image)
+
+
 def draw_boxes(image_path, boxes):
     image = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(image)
@@ -74,7 +80,7 @@ def process_image(image_path):
             if x2 <= x1 or y2 <= y1:
                 continue
             crop = image_bgr[y1:y2, x1:x2]
-            ocr_result = ocr_agent.ocr(crop, cls=True)
+            ocr_result = run_ocr(crop)
             text_str = ""
             if ocr_result and ocr_result[0]:
                 text_str = " ".join([line[1][0] for line in ocr_result[0]])
@@ -88,7 +94,7 @@ def process_image(image_path):
             )
             boxes.append([x1, y1, x2, y2])
     else:
-        ocr_result = ocr_agent.ocr(image_bgr, cls=True)
+        ocr_result = run_ocr(image_bgr)
         if ocr_result and ocr_result[0]:
             for line in ocr_result[0]:
                 if not line or len(line) < 2:
