@@ -50,7 +50,10 @@ def process_image(image_path):
     for line in result[0]:
         text = line[1][0]
         bbox = line[0]
-        items.append({"text": text, "bbox": bbox})
+
+        # 确保每个项都有有效的bbox
+        if len(bbox) == 4:  # 如果bbox是四个坐标点
+            items.append({"text": text, "bbox": bbox})
 
     # 行合并
     merged_items = merge_by_lines(items)
