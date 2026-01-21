@@ -12,37 +12,35 @@ except Exception:
 from paddleocr import PaddleOCR
 
 
+def init_ocr():
+    try:
+        return PaddleOCR(use_textline_orientation=True, lang="en")
+    except TypeError:
+        return PaddleOCR(use_angle_cls=True, lang="en")
+
+
 def build_layout_model():
-    if lp is None:
+    if lp is None or not hasattr(lp, "Detectron2LayoutModel"):
         return None
 
-    if hasattr(lp, "PubLayNetLayoutModel"):
-        try:
-            return lp.PubLayNetLayoutModel()
-        except Exception:
-            pass
-
-    if hasattr(lp, "Detectron2LayoutModel"):
-        try:
-            return lp.Detectron2LayoutModel(
-                "lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config",
-                extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
-                label_map={
-                    0: "Text",
-                    1: "Title",
-                    2: "List",
-                    3: "Table",
-                    4: "Figure",
-                },
-            )
-        except Exception:
-            return None
-
-    return None
+    try:
+        return lp.Detectron2LayoutModel(
+            "lp://PubLayNet/faster_rcnn_R_50_FPN_3x/config",
+            extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", 0.5],
+            label_map={
+                0: "Text",
+                1: "Title",
+                2: "List",
+                3: "Table",
+                4: "Figure",
+            },
+        )
+    except Exception:
+        return None
 
 
+ocr_agent = init_ocr()
 model = build_layout_model()
-ocr_agent = PaddleOCR(use_angle_cls=True, lang="en")
 
 
 def run_ocr(image):
@@ -151,8 +149,7 @@ def process_image(image_path):
             if x2 <= x1 or y2 <= y1:
                 continue
             crop = image_bgr[y1:y2, x1:x2]
-            ocr_result = run_ocr(crop)
-            ocr_items = parse_ocr_result(ocr_result)
+            ocr_items = parse_ocr_result(run_ocr(crop))
             text_str = " ".join([item["text"] for item in ocr_items if item["text"]])
 
             results.append(
@@ -164,8 +161,7 @@ def process_image(image_path):
             )
             boxes.append([x1, y1, x2, y2])
     else:
-        ocr_result = run_ocr(image_bgr)
-        ocr_items = parse_ocr_result(ocr_result)
+        ocr_items = parse_ocr_result(run_ocr(image_bgr))
         for item in ocr_items:
             results.append(
                 {
@@ -190,7 +186,7 @@ def batch_process(input_dir, output_dir):
     ]
 
     if model is None:
-        print("[WARN] Layout model unavailable; using PaddleOCR detection only.")
+        print("[WARN] Layout model unavailable; install layoutparser[layoutmodels] and detectron2.")
 
     for img_name in image_files:
         path = os.path.join(input_dir, img_name)
