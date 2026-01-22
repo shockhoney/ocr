@@ -1,28 +1,73 @@
+import os
 from paddleocr import PaddleOCRVL
 
-pipeline = PaddleOCRVL(vl_rec_backend="vllm-server", vl_rec_server_url="http://127.0.0.1:8118/v1")
+INPUT_FOLDER = "main_file"  
+OUTPUT_FOLDER = "output"    
 
-custom_prompt ='''1. 角色与目标
-你将扮演一位 图像处理与OCR技术专家，你的核心目标是 准确识别并标注海报图片中的所有文字内容，将语义连续的文字块封装为独立文本框，并以结构化JSON格式输出文字内容及其对应位置坐标。
 
-2. 背景与上下文
-该任务涉及从图像中提取文字信息，并通过视觉标注方式呈现识别结果。需处理的图片为海报类图像，
-通常包含多行文字、标题、标语等内容，文字可能有不同字体、颜色和排版方式。文本框应确保语义上连续的文字被合并为一个区域。
-3. 输出要求
-格式: JSON对象
-风格: 精准、技术性、结构化
-约束:
-必须包含所有识别出的文字内容。
-每个文本框应包含text字段与bounding_box字段，其中bounding_box为包含x, y, width, height四个坐标的数组。
-文字内容应为纯文本格式，不包含任何格式化信息。
-输出不包含额外的解释内容，仅包含JSON数据。'''
+def get_custom_prompt():
+    """定义提示词"""
+    return '''
+# Role
+你是一个专业的OCR文档分析助手。
 
-output = pipeline.predict(
-    "main_file/	2ce0c5c86d4b290fac62168e3bb48392.png", 
-    prompt=custom_prompt
-)
+# Task
+请识别图片中的所有文字内容，并将其整理为结构化的JSON格式。
 
-for res in output:
-    res.print()
-    res.save_to_json(save_path="output")
-	
+# Constraints
+1. 忽略图像质量问题，尽最大努力识别所有可见文字。
+2. 将语义上属于同一行的文字合并。
+3. 仅输出纯JSON字符串。
+
+# Output Format (JSON)
+[
+  {
+    "text": "识别内容",
+    "location": "大致位置"
+  }
+]
+'''
+
+def process_single_image(pipeline, image_path, prompt, save_dir):
+    """
+    封装好的单张图片处理函数
+    """
+    try:
+        print(f"正在处理: {image_path} ...")
+        
+        # 1. 调用模型预测
+        output = pipeline.predict(image_path, prompt=prompt)
+
+        # 2. 保存结果
+        for res in output:
+            # res.print() # 如果不想刷屏可以注释掉这行
+            res.save_to_json(save_path=save_dir)
+            
+        print(f"完成: {image_path}")
+        
+    except Exception as e:
+        print(f"处理图片 {image_path} 时出错: {e}")
+
+def main():
+    pipeline = PaddleOCRVL(
+        vl_rec_backend="vllm-server", 
+        vl_rec_server_url="http://127.0.0.1:8118/v1"
+    )
+    
+    if not os.path.exists(OUTPUT_FOLDER):
+        os.makedirs(OUTPUT_FOLDER)
+
+    prompt = get_custom_prompt()
+
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp')
+    
+    file_list = [f for f in os.listdir(INPUT_FOLDER) if f.lower().endswith(valid_extensions)]
+    total_files = len(file_list)
+    
+    for index, filename in enumerate(file_list):
+        full_image_path = os.path.join(INPUT_FOLDER, filename)
+        
+        process_single_image(pipeline, full_image_path, prompt, OUTPUT_FOLDER)
+
+if __name__ == "__main__":
+    main()
