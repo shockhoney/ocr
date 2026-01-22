@@ -12,7 +12,7 @@
 
 import os
 from paddleocr import PaddleOCRVL
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # 初始化OCR管道
 pipeline = PaddleOCRVL(vl_rec_backend="vllm-server", vl_rec_server_url="http://127.0.0.1:8118/v1")
@@ -38,13 +38,22 @@ def save_results(output, output_folder, file_path):
         res.save_to_json(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.json"))
         res.save_to_markdown(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.md"))
         
-        # 保存处理结果的可视化图片
+        # 手动绘制OCR结果的可视化图片
         try:
             image = Image.open(file_path)  # 使用完整路径打开图片
-            image_with_results = res.visualize()  # 可视化结果
-            image_with_results.save(os.path.join(output_folder, f"{os.path.basename(file_path)}_visualized_{idx}.png"))
+            draw = ImageDraw.Draw(image)
+
+            # 获取OCR结果并绘制识别框
+            for item in res.get("text_boxes", []):
+                # item[0] 是一个四个点的坐标，绘制矩形框
+                draw.polygon(item[0], outline="red", width=2)
+            
+            # 保存可视化的图片
+            image.save(os.path.join(output_folder, f"{os.path.basename(file_path)}_visualized_{idx}.png"))
         except FileNotFoundError:
             print(f"Error: File {file_path} not found.")
+        except Exception as e:
+            print(f"Error while processing {file_path}: {e}")
 
 # 调用函数处理指定文件夹中的图片
 folder_path = "main_file"  # 输入文件夹路径
