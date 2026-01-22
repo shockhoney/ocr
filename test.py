@@ -17,31 +17,39 @@ from PIL import Image
 # 指向启动的vllm服务
 pipeline = PaddleOCRVL(vl_rec_backend="vllm-server", vl_rec_server_url="http://127.0.0.1:8118/v1")
 
+# 批量处理文件夹中的图片并保存结果
 def process_images_in_folder(folder_path, output_folder):
-    
+    # 遍历文件夹中的所有文件
     for filename in os.listdir(folder_path):
+        # 获取文件的完整路径
         file_path = os.path.join(folder_path, filename)
 
+        # 只处理图片文件
         if os.path.isfile(file_path) and filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
             print(f"Processing {filename}...")
-            
+
             # 使用PaddleOCRVL进行预测
             output = pipeline.predict(file_path)
 
+            # 确保输出文件夹存在
+            os.makedirs(output_folder, exist_ok=True)
+
             # 保存结果到JSON和Markdown
-            output_json_path = os.path.join(output, f"{filename}_result.json")
-            output_markdown_path = os.path.join(output, f"{filename}_result.md")
+            output_json_path = os.path.join(output_folder, f"{filename}_result.json")
+            output_markdown_path = os.path.join(output_folder, f"{filename}_result.md")
             output.save_to_json(save_path=output_json_path)
             output.save_to_markdown(save_path=output_markdown_path)
 
             # 可视化图片保存
-            image = Image.open(file_path)
-            result_image_path = os.path.join(output, f"{filename}_visualized.png")
-            output.save_to_image(image, result_image_path) 
+            result_image_path = os.path.join(output_folder, f"{filename}_visualized.png")
+            image = Image.open(file_path)  # 打开原始图片
+            output.save_to_image(image, result_image_path)  # 保存带有识别结果的可视化图片
 
-input_folder = "main_file"  
-output = "ocr_output"   
+            print(f"Processed {filename}, results saved to {output_folder}")
 
-os.makedirs(output, exist_ok=True)
+# 设定文件夹路径
+input_folder = "main_file"  # 这里替换为你的图片文件夹路径
+output_folder = "path_to_output_folder"    # 这里替换为你希望保存结果的文件夹路径
 
+# 批量处理文件夹中的图片
 process_images_in_folder(input_folder, output_folder)
