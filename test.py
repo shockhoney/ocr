@@ -33,10 +33,19 @@ def process_images_in_folder(folder_path, output_folder):
 # 保存OCR结果到文件和可视化图片
 def save_results(output, output_folder, file_path):
     # output 可能是一个列表，我们需要逐个处理每个结果
+    json_data = []  # 用来存储JSON数据
     for idx, res in enumerate(output):
-        # 保存结果为JSON和Markdown
-        res.save_to_json(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.json"))
-        res.save_to_markdown(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.md"))
+        # 保存OCR结果为JSON文件
+        result_data = []
+        for item in res.get("text_boxes", []):
+            text = item[1]  # 获取文本内容
+            box = item[0]  # 获取文本框坐标
+            result_data.append({"text": text, "box": box})
+        
+        # 保存JSON格式结果
+        json_file_path = os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.json")
+        with open(json_file_path, 'w') as json_file:
+            json.dump(result_data, json_file, ensure_ascii=False, indent=4)
         
         # 手动绘制OCR结果的可视化图片
         try:
@@ -49,7 +58,8 @@ def save_results(output, output_folder, file_path):
                 draw.polygon(item[0], outline="red", width=2)
             
             # 保存可视化的图片
-            image.save(os.path.join(output_folder, f"{os.path.basename(file_path)}_visualized_{idx}.png"))
+            visualized_image_path = os.path.join(output_folder, f"{os.path.basename(file_path)}_visualized_{idx}.png")
+            image.save(visualized_image_path)
         except FileNotFoundError:
             print(f"Error: File {file_path} not found.")
         except Exception as e:
