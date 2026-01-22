@@ -28,20 +28,23 @@ def process_images_in_folder(folder_path, output_folder):
         if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
             print(f"Processing: {filename}")
             output = pipeline.predict(file_path)
-            save_results(output, output_folder, filename)
+            save_results(output, output_folder, file_path)  # 传递完整路径
 
 # 保存OCR结果到文件和可视化图片
-def save_results(output, output_folder, filename):
+def save_results(output, output_folder, file_path):
     # output 可能是一个列表，我们需要逐个处理每个结果
     for idx, res in enumerate(output):
         # 保存结果为JSON和Markdown
-        res.save_to_json(save_path=os.path.join(output_folder, f"{filename}_result_{idx}.json"))
-        res.save_to_markdown(save_path=os.path.join(output_folder, f"{filename}_result_{idx}.md"))
+        res.save_to_json(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.json"))
+        res.save_to_markdown(save_path=os.path.join(output_folder, f"{os.path.basename(file_path)}_result_{idx}.md"))
         
         # 保存处理结果的可视化图片
-        image = Image.open(filename)  # 打开图片
-        image_with_results = res.visualize()  # 可视化结果
-        image_with_results.save(os.path.join(output_folder, f"{filename}_visualized_{idx}.png"))
+        try:
+            image = Image.open(file_path)  # 使用完整路径打开图片
+            image_with_results = res.visualize()  # 可视化结果
+            image_with_results.save(os.path.join(output_folder, f"{os.path.basename(file_path)}_visualized_{idx}.png"))
+        except FileNotFoundError:
+            print(f"Error: File {file_path} not found.")
 
 # 调用函数处理指定文件夹中的图片
 folder_path = "main_file"  # 输入文件夹路径
