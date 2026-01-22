@@ -11,6 +11,7 @@
 
 
 import os
+import json
 from paddleocr import PaddleOCRVL
 from PIL import Image, ImageDraw
 
