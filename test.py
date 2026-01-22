@@ -11,6 +11,7 @@
 
 
 import os
+import json
 from paddleocr import PaddleOCRVL
 from PIL import Image
 
@@ -34,11 +35,15 @@ def process_images_in_folder(folder_path, output_folder):
             # 确保输出文件夹存在
             os.makedirs(output_folder, exist_ok=True)
 
-            # 保存结果到JSON和Markdown
+            # 保存结果到JSON文件
             output_json_path = os.path.join(output_folder, f"{filename}_result.json")
+            with open(output_json_path, 'w', encoding='utf-8') as f:
+                json.dump(output, f, ensure_ascii=False, indent=4)
+
+            # 保存结果到Markdown文件
             output_markdown_path = os.path.join(output_folder, f"{filename}_result.md")
-            output.save_to_json(save_path=output_json_path)
-            output.save_to_markdown(save_path=output_markdown_path)
+            with open(output_markdown_path, 'w', encoding='utf-8') as f:
+                f.write(str(output))  # 将结果转换为字符串保存到Markdown
 
             # 可视化图片保存
             result_image_path = os.path.join(output_folder, f"{filename}_visualized.png")
