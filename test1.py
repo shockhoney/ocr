@@ -12,7 +12,7 @@ pipeline = PaddleOCRVL(
 )
 
 # 2. 提示词
-prompt = "请对图片进行版面分析，提取所有区域的文字(海报上的文字，可能不具备结构化，包含水平，垂直，倾斜，字体大小不一等各种各样的文字）和文本框坐标(bounding box)。"
+prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域，包括海报上水平、垂直和倾斜排列的文字，并注意文字可能具有不一致的字体大小。同时，请准确输出每个文字区域的文本框坐标（bounding box）。"
 
 for filename in os.listdir(INPUT_DIR):
     if filename.lower().endswith(('.jpg', '.png', '.jpeg')):
