@@ -12,7 +12,7 @@ os.makedirs(IMG_DIR, exist_ok=True)
 pipeline = PaddleOCRVL(
     vl_rec_backend="vllm-server", 
     vl_rec_server_url="http://127.0.0.1:8118/v1")
-prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域。需特别注意文字可能以水平、垂直或倾斜方式排列，并且字体大小可能不一致。请将语义上连续的文字内容合并至同一个文本框中，并准确输出每个文字区域的文本框坐标（包括左上角坐标、宽度和高度）。"
+prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域，包括水平、垂直和倾斜排列的文字。注意文字可能具有不一致的字体大小，需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），并确保语义连续的文字被包含在同一个文本框中。在可视化结果中，不要显示原始图像块（image block）。最后，如果json文件中block_content为空或者全是特殊符号没有文本也需要剔除"
 
 
 def process_single_result(res, filename):
@@ -41,7 +41,7 @@ def process_single_result(res, filename):
         }
 
         # 定义需要剔除的键
-        exclude_keys = {"block_id", "block_order", "group_id"}
+        exclude_keys = {"block_id", "block_order","block_label" "group_id"}
 
         if "parsing_res_list" in raw_data:
             for item in raw_data["parsing_res_list"]:
