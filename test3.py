@@ -78,7 +78,7 @@ def draw_ocr_result(original_img_path, json_data, save_img_path):
                 
                 # --- A. 画框 (绿色) ---
                 # PIL画矩形: [x0, y0, x1, y1]
-                draw.rectangle([x, y, x + w, y + h], outline=(0, 255, 0), width=3)
+                draw.rectangle([x, y, w,  h], outline=(0, 255, 0), width=3)
                 
                 # --- B. 画文字 (红色) ---
                 # 动态计算字号: 设为高度的 60%，但不小于 12，不大于 40
