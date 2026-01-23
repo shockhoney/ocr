@@ -11,64 +11,60 @@ INPUT_DIR = "main_file"
 OUTPUT_BASE = "output_result"
 JSON_DIR = os.path.join(OUTPUT_BASE, "json")
 IMG_DIR = os.path.join(OUTPUT_BASE, "image")
-TEMP_DIR = "temp_processed"  # 临时存放预处理图片的文件夹
+TEMP_DIR = "temp_processed"  # 临时文件夹
 
 # 自动创建目录
 os.makedirs(JSON_DIR, exist_ok=True)
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# ================= 2. 图像预处理函数 (新增核心功能) =================
-def preprocess_image(img_path, temp_save_path):
+# ================= 2. 温和的预处理逻辑 (修改重点) =================
+def preprocess_image_mild(img_path, temp_save_path):
     """
-    预处理步骤：
-    1. 放大: 提高小字的分辨率
-    2. CLAHE: 增强局部对比度 (让文字从背景浮现)
-    3. 锐化: 让艺术字边缘更清晰
+    温和预处理：
+    1. 仅对过小的图片进行轻微放大 (1.5倍)。
+    2. 仅做 Gamma 校正 (提亮)，不做锐化和强对比度增强。
     """
     img = cv2.imread(img_path)
     if img is None:
         return False
 
-    # A. 自动放大 (如果图片宽度小于 1600，放大 2 倍)
-    # 大模型对高分辨率输入的细节捕捉能力更强
     h, w = img.shape[:2]
-    if w < 1600:
-        scale_factor = 2.0
-        img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
 
-    # B. 转换到 LAB 色彩空间进行 CLAHE 增强 (只增强亮度通道 L，保持色彩)
-    # 相比直接转灰度，这样能保留海报的颜色信息，对 VLM 理解语义更有帮助
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
+    # --- 策略A: 智能放大 ---
+    # 之前是无脑 2倍，现在改为：只有宽度小于 1000 像素的小图才放大
+    # 大模型通常在 1000px - 2000px 范围内效果最好
+    if w < 1000:
+        scale_factor = 1.5  # 降低放大倍数
+        # 使用线性插值，比立方插值更平滑，噪点更少
+        img = cv2.resize(img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
     
-    # 应用 CLAHE (限制对比度自适应直方图均衡化)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    cl = clahe.apply(l)
+    # --- 策略B: Gamma 校正 (替代 CLAHE) ---
+    # 很多海报字体检测不到是因为暗部细节丢失。
+    # Gamma < 1.0 会在不增加噪点的情况下提亮暗部。
+    # 0.9 是一个非常保守的值，只做轻微提亮，保持原图风味。
+    gamma = 0.9
+    lookUpTable = np.empty((1, 256), np.uint8)
+    for i in range(256):
+        lookUpTable[0, i] = np.clip(pow(i / 255.0, 1.0 / gamma) * 255.0, 0, 255)
+    img = cv2.LUT(img, lookUpTable)
+
+    # --- 移除了 锐化 和 CLAHE 操作 ---
     
-    # 合并通道
-    limg = cv2.merge((cl, a, b))
-    img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-
-    # C. 边缘锐化 (让模糊的文字变清晰)
-    kernel = np.array([[0, -1, 0], 
-                       [-1, 5, -1], 
-                       [0, -1, 0]])
-    img = cv2.filter2D(img, -1, kernel)
-
-    # 保存预处理后的图片
     cv2.imwrite(temp_save_path, img)
     return True
 
-# ================= 3. 定义文本过滤逻辑 =================
+# ================= 3. 文本过滤逻辑 (保持不变) =================
 PLACEHOLDER_CHARS = set("口□■▢▣▤▥▦▧▨▩▪▫◻◼◽◾☐☑☒")
 
 def is_meaningful_text(text: str) -> bool:
     if not text: return False
     s = "".join(ch for ch in text if not ch.isspace())
     if not s: return False
+    # 过滤纯符号/纯占位符
     if all(ch in PLACEHOLDER_CHARS for ch in s): return False
     if all(unicodedata.category(ch).startswith(("P", "S")) for ch in s): return False
+    # 必须包含字母或数字(含中文)
     if any(unicodedata.category(ch).startswith(("L", "N")) for ch in s): return True
     return False
 
@@ -78,16 +74,15 @@ pipeline = PaddleOCRVL(
     vl_rec_server_url="http://127.0.0.1:8118/v1"
 )
 
-# 优化提示词：增加对艺术字和标题的强调
-prompt = "请对图片进行版面分析。注意识别海报中艺术化、变形或断裂的标题文字（如 'FUTURE' 等设计字体），同时识别底部的小字信息。准确输出每个文字区域的文本框坐标。过滤掉非文字的装饰图案。"
+# 提示词微调：去掉过于具体的描述，让模型自由发挥，防止过度关注某类特征
+prompt = "请对图片进行版面分析，提取所有可见的文字区域。识别标题、正文及海报中的装饰性文字。准确输出每个文字区域的坐标，并合并语义连续的文本行。"
 
-# ================= 5. 核心处理流程 =================
+# ================= 5. 处理函数 =================
 def process_single_result(res, filename, original_path):
     base_name = os.path.splitext(filename)[0]
     
     # --- A. 图片处理 ---
     res.save_to_img(IMG_DIR)
-    # 删除多余的排序图
     order_img_path = os.path.join(IMG_DIR, f"{base_name}_layout_order_res.png")
     if os.path.exists(order_img_path):
         os.remove(order_img_path)
@@ -95,7 +90,6 @@ def process_single_result(res, filename, original_path):
     # --- B. JSON处理 ---
     res.save_to_json(JSON_DIR)
     
-    # 路径修正
     json_path = os.path.join(JSON_DIR, f"{base_name}_res.json")
     if not os.path.exists(json_path):
         json_path = os.path.join(JSON_DIR, f"{base_name}.json")
@@ -105,7 +99,7 @@ def process_single_result(res, filename, original_path):
             raw_data = json.load(f)
 
         clean_data = {
-            "input_path": original_path, # 重要：写回原图路径，而不是临时处理图的路径
+            "input_path": original_path, # 记录原图路径
             "parsing_res_list": []
         }
 
@@ -130,34 +124,13 @@ def process_single_result(res, filename, original_path):
         print(f"  [完成] {filename}")
 
     except Exception as e:
-        print(f"  [JSON错误] {e}")
-
+        print(f"  [错误] {e}")
 
 # ================= 6. 主循环 =================
 try:
     for filename in os.listdir(INPUT_DIR):
         if filename.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp')):
             original_path = os.path.join(INPUT_DIR, filename)
-            temp_path = os.path.join(TEMP_DIR, filename) # 临时文件路径
+            temp_path = os.path.join(TEMP_DIR, filename)
             
-            print(f"正在处理: {filename}")
-
-            # 1. 执行预处理
-            if preprocess_image(original_path, temp_path):
-                # 2. 将预处理后的图片传给模型
-                # 注意：这里传的是 temp_path (对比度更高、更清晰的大图)
-                try:
-                    output = pipeline.predict(temp_path, prompt=prompt)
-                    for res in output:
-                        # 3. 处理结果 (传入原始路径用于JSON记录)
-                        process_single_result(res, filename, original_path)
-                except Exception as e:
-                    print(f"  [预测失败] {e}")
-            else:
-                print(f"  [跳过] 图片读取失败")
-
-finally:
-    # (可选) 程序结束后清理临时文件夹
-    # if os.path.exists(TEMP_DIR):
-    #     shutil.rmtree(TEMP_DIR)
-    pass
+            # 1. 预处
