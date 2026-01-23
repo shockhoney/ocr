@@ -133,4 +133,16 @@ try:
             original_path = os.path.join(INPUT_DIR, filename)
             temp_path = os.path.join(TEMP_DIR, filename)
             
-            # 1. 预处
+            # 1. 预处理
+            if preprocess_image_mild(original_path, temp_path):
+                try:
+                    # 2. 预测 (使用温和处理后的图片)
+                    output = pipeline.predict(temp_path, prompt=prompt)
+                    for res in output:
+                        process_single_result(res, filename, original_path)
+                except Exception as e:
+                    print(f"  [失败] {filename}: {e}")
+finally:
+    # 如果想保留临时文件查看效果，可以注释掉下面两行
+    if os.path.exists(TEMP_DIR):
+        shutil.rmtree(TEMP_DIR)
