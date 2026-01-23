@@ -2,6 +2,7 @@ import os
 import json
 from paddleocr import PaddleOCRVL
 
+# ================= 配置 =================
 INPUT_DIR = "main_file"
 OUTPUT_DIR = "output_result"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -15,75 +16,82 @@ pipeline = PaddleOCRVL(
 # 2. 提示词
 prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域。需特别注意文字可能以水平、垂直或倾斜方式排列，并且字体大小可能不一致。请将语义上连续的文字内容合并至同一个文本框中，并准确输出每个文字区域的文本框坐标（包括左上角坐标、宽度和高度）。"
 
-# --- 辅助函数：暴力提取数据 ---
-def extract_parsing_list(res_obj):
+# ================= 核心功能：清洗JSON =================
+def clean_json_file(json_path):
     """
-    尝试所有可能的方式从 res 对象中获取 parsing_res_list
+    读取全量JSON，提取 text 和 bbox，覆盖原文件
     """
-    data_list = []
-    
-    # 尝试方式 1: 直接属性访问 (res.parsing_res_list)
-    if hasattr(res_obj, 'parsing_res_list'):
-        data_list = res_obj.parsing_res_list
-        
-    # 尝试方式 2: 字典键访问 (res['parsing_res_list'])
-    elif hasattr(res_obj, 'get'):
-        data_list = res_obj.get('parsing_res_list', [])
-        
-    # 尝试方式 3: 尝试转换为字典 (res.__dict__)
-    if not data_list and hasattr(res_obj, '__dict__'):
-        data_list = res_obj.__dict__.get('parsing_res_list', [])
+    if not os.path.exists(json_path):
+        print(f"  [警告] 未找到JSON文件: {json_path}")
+        return
 
-    return data_list
+    try:
+        # 1. 读取原始全量数据
+        with open(json_path, 'r', encoding='utf-8') as f:
+            full_data = json.load(f)
 
-print("开始处理...")
+        simplified_data = []
+        
+        # 2. 提取 parsing_res_list 中的数据 (根据你提供的JSON结构)
+        if isinstance(full_data, dict) and "parsing_res_list" in full_data:
+            for item in full_data["parsing_res_list"]:
+                # 获取内容和坐标
+                content = item.get("block_content", "")
+                bbox = item.get("block_bbox", [])
+                
+                # 过滤逻辑：只要内容不为空字符串，就保留
+                if content and str(content).strip():
+                    simplified_data.append({
+                        "text": content,
+                        "bbox": bbox
+                    })
+        
+        # 3. 覆盖写入精简后的数据
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(simplified_data, f, ensure_ascii=False, indent=4)
+            
+        print(f"  --> JSON已清洗，保留 {len(simplified_data)} 条文本数据")
+
+    except Exception as e:
+        print(f"  [清洗失败] JSON格式异常: {e}")
+
+# ================= 主流程 =================
+print("开始批处理...")
+
 for filename in os.listdir(INPUT_DIR):
     if filename.lower().endswith(('.jpg', '.png', '.jpeg')):
         img_path = os.path.join(INPUT_DIR, filename)
-        print(f"正在处理: {filename}")
+        base_name = os.path.splitext(filename)[0]
+        print(f"\n正在处理: {filename}")
         
         try:
-            # 预测
+            # 1. 预测
             output = pipeline.predict(img_path, prompt=prompt)
 
             for res in output:
-                # 1. 保存带框图片 (保留官方功能)
+                # 2. 调用官方方法保存图片 (带框)
+                # 这会在 OUTPUT_DIR 生成 {filename}_res.png 或类似的图片
                 res.save_to_img(OUTPUT_DIR)
-                
-                # 2. 自定义精简 JSON
-                base_name = os.path.splitext(filename)[0]
-                json_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
-                
-                # === 核心修改：使用强力提取函数 ===
-                raw_list = extract_parsing_list(res)
-                
-                # 调试信息：如果列表为空，打印出来看看
-                if not raw_list:
-                    print(f"  [警告] 无法在 res 对象中找到数据，尝试 raw dump: {dir(res)}")
-                
-                simple_data = []
-                for item in raw_list:
-                    # 获取内容的兼容写法
-                    # 尝试 item['block_content'] 或 item.block_content
-                    if isinstance(item, dict):
-                        content = item.get('block_content', "")
-                        bbox = item.get('block_bbox', [])
-                    else:
-                        content = getattr(item, 'block_content', "")
-                        bbox = getattr(item, 'block_bbox', [])
+                print(f"  已保存可视化图片")
 
-                    # 过滤空文本
-                    if content and str(content).strip():
-                        simple_data.append({
-                            "text": content,
-                            "bbox": bbox
-                        })
+                # 3. 调用官方方法保存全量 JSON
+                # 这会在 OUTPUT_DIR 生成 {base_name}_res.json
+                res.save_to_json(OUTPUT_DIR)
                 
-                # 3. 保存
-                with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(simple_data, f, ensure_ascii=False, indent=4)
-                    
-                print(f"  已保存 JSON (包含 {len(simple_data)} 条文本): {json_path}")
+                # 4. 计算生成的 JSON 路径并进行清洗
+                # PaddleOCR 默认保存的文件名通常是: 原文件名_res.json
+                # 我们先尝试找 _res.json，如果找不到再找 .json
+                expected_json_name = f"{base_name}_res.json"
+                json_full_path = os.path.join(OUTPUT_DIR, expected_json_name)
+                
+                if not os.path.exists(json_full_path):
+                    # 备用方案：如果名字里没有_res
+                    json_full_path = os.path.join(OUTPUT_DIR, f"{base_name}.json")
+
+                # 执行清洗
+                clean_json_file(json_full_path)
                 
         except Exception as e:
-            print(f"  处理失败 {filename}: {e}")
+            print(f"  处理异常: {e}")
+
+print("\n全部完成！")
