@@ -24,7 +24,11 @@ def process_and_clean(res, base_name):
     res.save_to_img(IMG_OUT_DIR)
     res.save_to_json(JSON_OUT_DIR)
     
-    # 3. 读取并清洗 JSON
+    unwanted_img = os.path.join(IMG_OUT_DIR, f"{base_name}_layout_order_res.png")
+    if os.path.exists(unwanted_img):
+        os.remove(unwanted_img)
+        
+    #  读取并清洗 JSON
     json_path = os.path.join(JSON_OUT_DIR, f"{base_name}_res.json")
     if not os.path.exists(json_path):
         # 兼容备用文件名（有些版本可能是原名.json）
@@ -34,13 +38,13 @@ def process_and_clean(res, base_name):
         with open(json_path, 'r', encoding='utf-8') as f:
             raw_data = json.load(f)
         
-        # 4. 构建目标数据结构
+        #  构建目标数据结构
         final_data = {
             "input_path": raw_data.get("input_path", ""),
             "parsing_res_list": []
         }
 
-        # 5. 过滤逻辑：剔除 block_label 为 "image" 的项
+        #  过滤逻辑：剔除 block_label 为 "image" 的项
         if "parsing_res_list" in raw_data:
             for item in raw_data["parsing_res_list"]:
                 # 获取标签，转小写比较，确保过滤 "image", "figure" 等
