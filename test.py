@@ -2,7 +2,6 @@ import os
 import json
 from paddleocr import PaddleOCRVL
 
-# ================= 配置 =================
 INPUT_DIR = "main_file"
 OUTPUT_DIR = "output_result"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -16,10 +15,9 @@ pipeline = PaddleOCRVL(
 # 2. 提示词
 prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域。需特别注意文字可能以水平、垂直或倾斜方式排列，并且字体大小可能不一致。请将语义上连续的文字内容合并至同一个文本框中，并准确输出每个文字区域的文本框坐标（包括左上角坐标、宽度和高度）。"
 
-# ================= 核心功能：清洗JSON =================
 def clean_json_file(json_path):
     """
-    读取全量JSON，提取 text 和 bbox，覆盖原文件
+    读取全量JSON，提取 text 和 bbox，并且覆盖原文件
     """
     if not os.path.exists(json_path):
         print(f"  [警告] 未找到JSON文件: {json_path}")
@@ -55,7 +53,6 @@ def clean_json_file(json_path):
     except Exception as e:
         print(f"  [清洗失败] JSON格式异常: {e}")
 
-# ================= 主流程 =================
 print("开始批处理...")
 
 for filename in os.listdir(INPUT_DIR):
@@ -70,7 +67,6 @@ for filename in os.listdir(INPUT_DIR):
 
             for res in output:
                 # 2. 调用官方方法保存图片 (带框)
-                # 这会在 OUTPUT_DIR 生成 {filename}_res.png 或类似的图片
                 res.save_to_img(OUTPUT_DIR)
                 print(f"  已保存可视化图片")
 
