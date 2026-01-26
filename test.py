@@ -12,10 +12,7 @@ os.makedirs(JSON_DIR, exist_ok=True)
 os.makedirs(IMG_DIR, exist_ok=True)
 
 # ================= 2. 定义过滤逻辑 =================
-
-# 定义常见的OCR占位符或乱码字符集
 PLACEHOLDER_CHARS = set("口□■▢▣▤▥▦▧▨▩▪▫◻◼◽◾☐☑☒")
-
 def is_meaningful_text(text: str) -> bool:
     """
     判断文本是否具有实际含义。
@@ -29,19 +26,11 @@ def is_meaningful_text(text: str) -> bool:
     if not s:
         return False
 
-    # 2. 过滤纯占位符（如 "□ □ □"）
+    # 2. 过滤符号，标点，纯占位符
     if all(ch in PLACEHOLDER_CHARS for ch in s):
         return False
-
-    # 3. 过滤纯符号/纯标点
-    # unicodedata.category 返回字符类别：
-    # 'P' 开头为标点 (Punctuation)，如 , . " '
-    # 'S' 开头为符号 (Symbol)，如 + = $ ^ | ~
     if all(unicodedata.category(ch).startswith(("P", "S")) for ch in s):
         return False
-
-    # 4. 只有包含 字母(Letter) 或 数字(Number) 才算有效
-    # 注意：汉字在 Unicode 中属于 'Lo' (Letter, other)，所以这里也包含了中文
     if any(unicodedata.category(ch).startswith(("L", "N")) for ch in s):
         return True
 
@@ -53,7 +42,9 @@ pipeline = PaddleOCRVL(
     vl_rec_server_url="http://127.0.0.1:8118/v1"
 )
 
-prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域，包括水平、垂直和倾斜排列的文字。注意文字可能具有不一致的字体大小，需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），并确保语义连续的文字被包含在同一个文本框中。在可视化结果中，不要显示原始图像块（image block）。"
+prompt = '''请对图片进行版面分析，识别并提取所有可见的文字区域，包括水平、垂直和倾斜排列的文字。
+注意文字可能具有不一致的字体大小，需根据内容连续性进行合理合并。
+输出时应准确标注每个文字区域的文本框坐标（bounding box），并确保语义连续的文字被包含在同一个文本框中。'''
 
 # ================= 4. 核心处理函数 =================
 def process_single_result(res, filename):
@@ -110,7 +101,7 @@ def process_single_result(res, filename):
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(clean_data, f, ensure_ascii=False, indent=4)
             
-        print(f"  [完成] {filename} (已清洗符号和乱码)")
+        print(f"  [处理完成] {filename}")
 
     except Exception as e:
         print(f"  [错误] JSON处理出错: {e}")
