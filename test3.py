@@ -1,36 +1,33 @@
 import os
 import json
-import base64
-import requests
 import cv2
 import numpy as np
+import shutil
 import unicodedata
+import base64
+import requests
+import re
 
 # ================= 1. 配置区域 =================
 INPUT_DIR = "main_file"
-JSON_DIR = os.path.join("output_result", "json")
-IMG_DIR = os.path.join("output_result", "image")
-TEMP_DIR = os.path.join("output_result", "temp_preprocessed")
+OUTPUT_BASE = "output_result"
+JSON_DIR = os.path.join(OUTPUT_BASE, "json")
+IMG_DIR = os.path.join(OUTPUT_BASE, "image")
+TEMP_DIR = "temp_processed" 
 
-# VLLM API 配置
-API_URL = "http://127.0.0.1:8118/v1"
-MODEL_NAME = "PaddleOCR-VL-0.9B" # 请确保与 vllm 启动时的 model 参数一致
+# VLLM 服务配置 (请确认模型名称与启动参数一致)
+API_URL = "http://127.0.0.1:8118/v1/chat/completions"
+MODEL_NAME = "PaddleOCR-VL-0.9B"
 
-# 提示词
-PROMPT_TEXT = (
-    "请对图片进行版面分析，识别并提取所有可见的文字区域。注意文字可能具有不一致的字体大小，"
-    "需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），"
-    "并确保语义连续的文字被包含在同一个文本框中。"
-)
+# 确保文件夹存在
+os.makedirs(JSON_DIR, exist_ok=True)
+os.makedirs(IMG_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
-for d in [JSON_DIR, IMG_DIR, TEMP_DIR]:
-    os.makedirs(d, exist_ok=True)
-
-# ================= 2. 图像预处理与工具 =================
-
+# ================= 2. 增强型预处理 (保持不变) =================
 def preprocess_image_enhanced(img_path, temp_save_path):
     """
-    策略：不缩放 + CLAHE对比度增强 + USM锐化
+    策略：不缩放 + CLAHE(2.0) + USM锐化
     """
     img = cv2.imread(img_path)
     if img is None: return False
@@ -49,27 +46,8 @@ def preprocess_image_enhanced(img_path, temp_save_path):
     cv2.imwrite(temp_save_path, img_sharp)
     return True
 
-def encode_image_to_base64(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
-
-def draw_visualization(img_path, json_data, save_path):
-    """手动绘制可视化结果替代 save_to_img"""
-    img = cv2.imread(img_path)
-    if img is None: return
-    
-    for item in json_data.get("parsing_res_list", []):
-        bbox = item.get("block_bbox", [])
-        if len(bbox) == 4:
-            # 坐标格式通常是 [x1, y1, x2, y2]
-            x1, y1, x2, y2 = map(int, bbox)
-            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    
-    cv2.imwrite(save_path, img)
-
-# ================= 3. 文本过滤逻辑 =================
+# ================= 3. 过滤逻辑 (保持不变) =================
 PLACEHOLDER_CHARS = set("口□■▢▣▤▥▦▧▨▩▪▫◻◼◽◾☐☑☒")
-
 def is_meaningful_text(text: str) -> bool:
     if not text: return False
     s = "".join(ch for ch in text if not ch.isspace())
@@ -79,9 +57,36 @@ def is_meaningful_text(text: str) -> bool:
     if any(unicodedata.category(ch).startswith(("L", "N")) for ch in s): return True
     return False
 
-# ================= 4. API 调用核心函数 =================
-def call_openai_vllm(image_path):
-    base64_image = encode_image_to_base64(image_path)
+# ================= 4. API 调用与辅助函数 =================
+
+def encode_image(image_path):
+    """将图片转换为 Base64 编码"""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def extract_json(content):
+    """从模型回复中提取 JSON，兼容 ```json 代码块"""
+    content = content.strip()
+    # 尝试正则提取 ```json ... ```
+    match = re.search(r"```json\s*(.*?)\s*```", content, re.DOTALL)
+    if match:
+        content = match.group(1)
+    
+    # 尝试寻找首尾的大括号
+    start = content.find('{')
+    end = content.rfind('}')
+    if start != -1 and end != -1:
+        content = content[start:end+1]
+        
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        print("  [解析警告] 无法解析为JSON，原始内容片段:", content[:50])
+        return None
+
+def call_openai_api(image_path):
+    """调用 VLLM 的 OpenAI 兼容接口"""
+    base64_img = encode_image(image_path)
     
     payload = {
         "model": MODEL_NAME,
@@ -89,91 +94,104 @@ def call_openai_vllm(image_path):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": PROMPT_TEXT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    {"type": "text", "text": "请对图片进行版面分析，提取所有可见的文字区域，准确输出坐标并合并语义连续的文本行。"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"}}
                 ]
             }
         ],
-        "max_tokens": 4096,
-        "temperature": 0.0  # OCR任务建议低温度
+        "temperature": 0.0, # OCR 任务不需要随机性
+        "max_tokens": 4096
     }
-
+    
     try:
         response = requests.post(API_URL, headers={"Content-Type": "application/json"}, json=payload)
         response.raise_for_status()
-        result = response.json()
-        content = result['choices'][0]['message']['content']
-        
-        # 简单清洗 Markdown 代码块标记
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.endswith("```"):
-            content = content[:-3]
-        
-        return json.loads(content.strip())
+        res_json = response.json()
+        if 'choices' in res_json and len(res_json['choices']) > 0:
+            content = res_json['choices'][0]['message']['content']
+            return extract_json(content)
+        return None
     except Exception as e:
         print(f"  [API错误] {e}")
         return None
 
+def draw_visualization(img_path, json_data, save_path):
+    """手动绘制文本框 (替代 res.save_to_img)"""
+    img = cv2.imread(img_path)
+    if img is None: return
+
+    if "parsing_res_list" in json_data:
+        for item in json_data["parsing_res_list"]:
+            bbox = item.get("block_bbox", [])
+            # 格式通常是 [xmin, ymin, xmax, ymax]
+            if len(bbox) == 4:
+                x1, y1, x2, y2 = map(int, bbox)
+                # 画红框，线宽2
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    
+    cv2.imwrite(save_path, img)
+
 # ================= 5. 主循环 =================
 if __name__ == "__main__":
-    for filename in os.listdir(INPUT_DIR):
-        if not filename.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp')):
-            continue
-
-        base_name = os.path.splitext(filename)[0]
-        original_img_path = os.path.join(INPUT_DIR, filename)
-        processed_img_path = os.path.join(TEMP_DIR, f"pre_{filename}")
-
-        print(f"正在处理: {filename} ...")
-
-        # 1. 图像增强预处理
-        if not preprocess_image_enhanced(original_img_path, processed_img_path):
-            print(f"  [跳过] 图像读取失败")
-            continue
-
-        # 2. 调用 API 获取结果
-        raw_json_data = call_openai_vllm(processed_img_path)
-        
-        if not raw_json_data or "parsing_res_list" not in raw_json_data:
-            print(f"  [失败] 模型未返回有效JSON数据")
-            continue
-
-        # 3. 数据清洗与过滤
-        clean_res_list = []
-        exclude_keys = {"block_id", "block_order", "block_label", "group_id"}
-        
-        for item in raw_json_data["parsing_res_list"]:
-            label = item.get("block_label", "text").lower()
-            content = item.get("block_content", "")
-
-            # 过滤 image 类型
-            if "image" in label:
+    try:
+        for filename in os.listdir(INPUT_DIR):
+            if not filename.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp')):
                 continue
-            # 过滤无意义文本
-            if not is_meaningful_text(content):
-                continue
+
+            original_path = os.path.join(INPUT_DIR, filename)
+            temp_path = os.path.join(TEMP_DIR, filename)
+            base_name = os.path.splitext(filename)[0]
+
+            print(f"正在处理: {filename} ...")
             
-            # 构建保留项
-            clean_item = {k: v for k, v in item.items() if k not in exclude_keys}
-            clean_res_list.append(clean_item)
+            # 1. 预处理 (结果存入 temp)
+            if not preprocess_image_enhanced(original_path, temp_path):
+                print("  [跳过] 图片读取失败")
+                continue
 
-        final_data = {
-            "input_path": filename,
-            "parsing_res_list": clean_res_list
-        }
+            # 2. 调用 API
+            raw_data = call_openai_api(temp_path)
+            
+            if not raw_data or "parsing_res_list" not in raw_data:
+                print("  [失败] 模型未返回有效数据")
+                continue
 
-        # 4. 保存 JSON
-        json_save_path = os.path.join(JSON_DIR, f"{base_name}.json")
-        with open(json_save_path, 'w', encoding='utf-8') as f:
-            json.dump(final_data, f, ensure_ascii=False, indent=4)
+            # 3. 数据清洗与过滤
+            clean_res_list = []
+            exclude_keys = {"block_id", "block_order", "block_label", "group_id"}
 
-        # 5. 绘制结果图 (使用增强后的图或原图均可，这里用增强图方便看清楚)
-        img_save_path = os.path.join(IMG_DIR, f"{base_name}_vis.jpg")
-        draw_visualization(processed_img_path, final_data, img_save_path)
+            for item in raw_data["parsing_res_list"]:
+                label = item.get("block_label", "text").lower()
+                content = item.get("block_content", "")
 
-        print(f"  [完成] 结果已保存至 {JSON_DIR}")
+                # 过滤逻辑
+                if "image" in label: continue
+                if not is_meaningful_text(content): continue
 
-    # 清理临时文件夹 (可选)
-    # import shutil
-    # shutil.rmtree(TEMP_DIR)
+                # 构建保留项
+                clean_item = {k: v for k, v in item.items() if k not in exclude_keys}
+                clean_res_list.append(clean_item)
+
+            final_json = {
+                "input_path": original_path, # 记录原图路径
+                "parsing_res_list": clean_res_list
+            }
+
+            # 4. 保存 JSON
+            json_save_path = os.path.join(JSON_DIR, f"{base_name}.json")
+            with open(json_save_path, 'w', encoding='utf-8') as f:
+                json.dump(final_json, f, ensure_ascii=False, indent=4)
+
+            # 5. 生成可视化图片 (基于增强后的图片画框，方便核对)
+            img_save_path = os.path.join(IMG_DIR, f"{base_name}_vis.jpg")
+            draw_visualization(temp_path, final_json, img_save_path)
+            
+            print(f"  [完成] 结果已保存")
+
+    finally:
+        # 程序结束后清理临时文件
+        if os.path.exists(TEMP_DIR):
+            try:
+                shutil.rmtree(TEMP_DIR)
+            except:
+                pass
