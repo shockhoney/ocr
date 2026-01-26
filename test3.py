@@ -18,7 +18,7 @@ os.makedirs(JSON_DIR, exist_ok=True)
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# ================= 2. 增强型预处理 (保持不变) =================
+# ================= 2. 数据预处理 =================
 def preprocess_image_enhanced(img_path, temp_save_path):
     """
     策略：
@@ -122,7 +122,11 @@ pipeline = PaddleOCRVL(
     vl_rec_server_url="http://127.0.0.1:8118/v1"
 )
 
-prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域，包括水平、垂直和倾斜排列的文字。注意文字可能具有不一致的字体大小，需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），并确保语义连续的文字被包含在同一个文本框中"
+prompt = '''请对图片进行版面分析，识别并提取所有可见文字区域（水平/垂直/倾斜）。
+要求：
+1) 不要将不同区域的文字合并到同一个文本框；不同字号/不同颜色/不同对齐/不同行应拆分成不同文本块。
+2) 每个文本块尽量对应一行或一个独立语义单元（按钮文字、价格、标题、说明分别输出）。
+3) 输出中保留每个文本块的独立 bbox。'''
 
 # ================= 6. 处理流程 =================
 def process_single_result(res, filename, original_path):
