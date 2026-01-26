@@ -13,14 +13,14 @@ IMG_DIR = os.path.join("output_result", "image")
 TEMP_DIR = os.path.join("output_result", "temp_preprocessed")
 
 # VLLM API 配置
-API_URL = "http://127.0.0.1:8118/v1/chat/completions"
+API_URL = "http://127.0.0.1:8118/v1"
 MODEL_NAME = "PaddleOCR-VL-0.9B" # 请确保与 vllm 启动时的 model 参数一致
 
 # 提示词
 PROMPT_TEXT = (
     "请对图片进行版面分析，识别并提取所有可见的文字区域。注意文字可能具有不一致的字体大小，"
     "需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），"
-    "并确保语义连续的文字被包含在同一个文本框中。返回结果必须是标准的JSON格式，包含 parsing_res_list 列表。"
+    "并确保语义连续的文字被包含在同一个文本框中。"
 )
 
 for d in [JSON_DIR, IMG_DIR, TEMP_DIR]:
