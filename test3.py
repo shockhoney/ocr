@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 import shutil
 import unicodedata
-from PIL import Image, ImageDraw, ImageFont  # [新增] 引入PIL用于绘制
-from paddleocr import PaddleOCRVL
+from PIL import Image, ImageDraw, ImageFont 
 
 # ================= 1. 配置区域 =================
 INPUT_DIR = "main_file"
@@ -84,7 +83,7 @@ def draw_ocr_result(original_img_path, json_data, save_img_path):
                 
                 # --- A. 画框 ---
                 # PIL 的 rectangle 方法接收 [x1, y1, x2, y2]
-                draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=3)
+                draw.rectangle([x1, y1, x2, y2], outline=(0, 255, 0), width=1)
                 
                 # --- B. 画文字 ---
                 # 动态字号：高度的 60%
@@ -123,7 +122,7 @@ pipeline = PaddleOCRVL(
     vl_rec_server_url="http://127.0.0.1:8118/v1"
 )
 
-prompt = "请对图片进行版面分析，提取所有可见的文字区域，准确输出坐标并合并语义连续的文本行。"
+prompt = "请对图片进行版面分析，识别并提取所有可见的文字区域，包括水平、垂直和倾斜排列的文字。注意文字可能具有不一致的字体大小，需根据内容连续性进行合理合并。输出时应准确标注每个文字区域的文本框坐标（bounding box），并确保语义连续的文字被包含在同一个文本框中"
 
 # ================= 6. 处理流程 =================
 def process_single_result(res, filename, original_path):
