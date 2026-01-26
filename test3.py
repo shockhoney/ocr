@@ -18,7 +18,7 @@ FONT_PATH = "simhei.ttf"
 
 VLLM_API_URL = "http://127.0.0.1:8118/v1"
 VLLM_API_KEY = "EMPTY"
-MODEL_NAME = "PaddlePaddle/paddleocr_vl"
+MODEL_NAME = "PaddlePaddle/PaddleOCR_VL"
 
 for d in (JSON_DIR, IMG_DIR, TEMP_DIR):
     os.makedirs(d, exist_ok=True)
