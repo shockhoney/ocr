@@ -166,7 +166,6 @@ try:
             continue
         original_path = os.path.join(INPUT_DIR, filename)
         temp_path = os.path.join(TEMP_DIR, filename)
-        print(f"
         print(f"\n正在处理: {filename}")
 
         if not preprocess_image_enhanced(original_path, temp_path):
