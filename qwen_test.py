@@ -101,30 +101,24 @@ def process_single_image(file_path, img_output_dir, json_output_dir):
             box = item.get("box", [])
             
             if len(box) == 4:
-                # 坐标计算
-                x1 = int(box[0] / 1000 * width)
-                y1 = int(box[1] / 1000 * height)
-                x2 = int(box[2] / 1000 * width)
-                y2 = int(box[3] / 1000 * height)
+                # 坐标计算 (反归一化)
+                x_min = int(box[0] / 1000 * width)
+                y_min = int(box[1] / 1000 * height)
+                x_max = int(box[2] / 1000 * width)
+                y_max = int(box[3] / 1000 * height)
                 
-                # 画矩形框 (红色, 粗细为1)
-                cv2.rectangle(cv_img, (x1, y1), (x2, y2), (0, 0, 255), 1)
-                
-                if text_content:
-                    # 计算字体缩放 (根据框的高度动态调整)
-                    box_height = y2 - y1
-                    font_scale = max(0.4, box_height / 35.0) 
-                    font_scale = min(font_scale, 1.2) # 限制最大字体，防止遮盖
-                    
-                    thickness = 1 if font_scale < 0.8 else 2
-                    
-                    # 绘制文字描边 (黑色) - 为了让文字在复杂背景下更清晰
-                    text_pos = (x1, max(y1 - 10, 20))
-                    cv2.putText(cv_img, text_content, text_pos, 
-                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thickness + 2, cv2.LINE_AA)
-                    # 绘制文字主体
-                    cv2.putText(cv_img, text_content, text_pos, 
-                                cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), thickness, cv2.LINE_AA)
+                # 定义四个顶点 (模仿 draw_bbox.py 的逻辑)
+                # 左上, 右上, 右下, 左下
+                p1 = (x_min, y_min)
+                p2 = (x_max, y_min)
+                p3 = (x_max, y_max)
+                p4 = (x_min, y_max)
+
+                # 使用 cv2.line 绘制四条边 (红色, 粗细为2)
+                cv2.line(cv_img, p1, p2, (0, 0, 255), 2)
+                cv2.line(cv_img, p2, p3, (0, 0, 255), 2)
+                cv2.line(cv_img, p3, p4, (0, 0, 255), 2)
+                cv2.line(cv_img, p4, p1, (0, 0, 255), 2)
 
         # 3. 保存结果
         base_name = os.path.splitext(filename)[0]
