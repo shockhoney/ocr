@@ -20,12 +20,39 @@ def ensure_dirs():
     os.makedirs(IMG_OUTPUT_DIR, exist_ok=True)
     os.makedirs(JSON_OUTPUT_DIR, exist_ok=True)
 
+import re
+
+def extract_json_from_content(content):
+    """
+    从模型返回的 Markdown 文本中提取 JSON 对象
+    """
+    try:
+        # 尝试匹配 ```json ... ```
+        match = re.search(r"```json(.*?)```", content, re.DOTALL)
+        if match: return json.loads(match.group(1).strip())
+        
+        # 尝试匹配纯列表 [...]
+        match_list = re.search(r"\[.*\]", content, re.DOTALL)
+        if match_list: return json.loads(match_list.group(0).strip())
+        
+        return None
+    except Exception as e:
+        print(f"JSON Parse Error: {e}")
+        return None
+
 def get_ocr_result(local_path):
     """
     调用 DashScope Qwen-VL-OCR 进行文字识别
     """
     file_uri = f"file://{local_path}"
     
+    prompt = '''定位所有的文字行，并且以json格式返回旋转矩形([x1, y1, x2, y2])的坐标结果。 返回格式必须是纯 JSON 列表，格式如下：
+           [
+             {"text": "文本内容", "box": [xmin, ymin, xmax, ymax]},
+             ...
+           ]其中x1,y1是文字行的左上角坐标，x2,y2是文字行的右下角坐标
+           另外，你需要根据提取的语义信息和距离，将文字行进行合理组合，有的语义连续的文本可能不在同一行，需要合并为一个文本行'''
+
     messages = [{
         "role": "user",
         "content": [
@@ -36,30 +63,25 @@ def get_ocr_result(local_path):
                 "enable_rotate": True
             },
             {
-                "text": "定位所有的文字行"
+                "text": prompt
             }
         ]
     }]
 
     try:
-        # 调用模型
-        # 注意：model='qwen-vl-ocr-2025-08-28' 和 task='advanced_recognition' 是关键
+        # 使用 qwen-vl-max 来支持自定义 Prompt 指令
         response = MultiModalConversation.call(
-            model='qwen-vl-ocr-2025-08-28',
-            messages=messages,
-            ocr_options={"task": "advanced_recognition"}
+            model='qwen-vl-ocr-2025-08-28', 
+            messages=messages
         )
     except Exception as e:
         print(f"\n[Network Error] API 调用失败: {e}")
-        print("请检查网络连接或 DNS 设置 (Unable to resolve dashscope.aliyuncs.com)")
         return None
     
     if response.status_code == 200:
-        if "ocr_result" in response.output.choices[0].message.content[0]:
-            return response.output.choices[0].message.content[0]["ocr_result"]
-        else:
-            print(f"Warning: No 'ocr_result' in response for {local_path}")
-            return None
+        content = response.output.choices[0].message.content
+        # 提取 JSON
+        return extract_json_from_content(content)
     else:
         print(f"Error calling API for {local_path}: code={response.code}, message={response.message}")
         return None
@@ -74,27 +96,33 @@ def draw_and_save(image_path, ocr_result, save_path):
             print(f"Error: Could not read image {image_path}")
             return
 
-        if 'words_info' in ocr_result:
-            words_info = ocr_result["words_info"]
+        height, width = img.shape[:2]
+        
+        # 兼容处理：ocr_result 应该是一个列表
+        data_list = ocr_result if isinstance(ocr_result, list) else []
+        
+        for item in data_list:
+            text = item.get("text", "")
+            box = item.get("box", [])
             
-            for line in words_info:
-                # 高精版 OCR 返回 location 为 8 个坐标点 (x1, y1, x2, y2, x3, y3, x4, y4)
-                # 对应：左上 -> 右上 -> 右下 -> 左下
-                loc = line.get('location', [])
-                if len(loc) == 8:
-                    pts = np.array([
-                        [loc[0], loc[1]],
-                        [loc[2], loc[3]],
-                        [loc[4], loc[5]],
-                        [loc[6], loc[7]]
-                    ], np.int32)
-                    
-                    pts = pts.reshape((-1, 1, 2))
-                    
-                    # 绘制多边形框 (红色)
-                    cv2.polylines(img, [pts], isClosed=True, color=(0, 0, 255), thickness=2)
-                    
-                    # 可选：绘制文字 (由于 opencv 不支持中文，这里暂不绘制文字内容，或者需要用 pillow)
+            # 格式: [xmin, ymin, xmax, ymax] (归一化 0-1000)
+            if len(box) == 4:
+                x1 = int(box[0] / 1000 * width)
+                y1 = int(box[1] / 1000 * height)
+                x2 = int(box[2] / 1000 * width)
+                y2 = int(box[3] / 1000 * height)
+                
+                # 绘制矩形框 (红色)
+                cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                
+                # 绘制简单的文字背景条 (防止文字看不清)
+                cv2.rectangle(img, (x1, y1-20), (x1+100, y1), (0, 0, 255), -1)
+                
+                # 注意：OpenCV putText 不支持中文，这里只绘制 "Text" 占位或使用英文内容
+                # 如果需要中文，需使用 PIL
+                display_text = "Text" 
+                cv2.putText(img, display_text, (x1, y1 - 5), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         cv2.imwrite(save_path, img)
         print(f"Saved visualization to {save_path}")
