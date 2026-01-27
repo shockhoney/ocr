@@ -71,7 +71,7 @@ def get_ocr_result(local_path):
     try:
         # 使用 qwen-vl-max 来支持自定义 Prompt 指令
         response = MultiModalConversation.call(
-            model='qwen-vl-ocr-2025-08-28', 
+            model='qwen-vl-max', 
             messages=messages
         )
     except Exception as e:
