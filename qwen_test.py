@@ -6,7 +6,7 @@ import re
 import cv2  
 import numpy as np
 from io import BytesIO
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageEnhance
 
 # ================= 配置区域 =================
 input_folder = "main_file" 
@@ -17,6 +17,24 @@ client = OpenAI(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 # ===========================================
+
+def preprocess_image(image):
+    """
+    图片预处理函数：增强对比度和锐度，提升OCR识别率
+    """
+    # 1. 确保是RGB模式
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+        
+    # 2. 增强对比度
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)  # 提高对比度
+    
+    # 3. 增强锐度
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(1.5)  # 提高锐度
+    
+    return image
 
 def pil_to_cv2(pil_image):
     return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -52,19 +70,22 @@ def process_single_image(file_path, img_output_dir, json_output_dir):
         original_img = Image.open(file_path)
         original_img = ImageOps.exif_transpose(original_img)
         
+        # 预处理图片
+        processed_img = preprocess_image(original_img)
+        
         # 转 base64 (用于 API 请求)
-        base64_img = pil_to_base64(original_img)
+        base64_img = pil_to_base64(processed_img)
         
         prompt = """
         请对这张海报进行OCR文字检测。
         要求：
-        1. 识别所有可见文字，语义连续的文字可能出现在不同行，你需要根据语义将不同行文字合并在同一个box内。
+        1. 识别所有可见文字，语义连续的文字可能出现在不同行，你需要根据语义将不同行文字合并在同一个box内,文本box要严格贴合检测的文字，防止出现文本框漂移的情况。
         2. 返回格式必须是纯 JSON 列表，格式如下：
            [
              {"text": "文本内容", "box": [xmin, ymin, xmax, ymax]},
              ...
            ]
-        3. box坐标归一化到0-1000。
+        3. 传入的图片大小都是626x626大小。
         4. 不要输出任何分析文字，只输出JSON代码块。
         """
         
@@ -91,7 +112,8 @@ def process_single_image(file_path, img_output_dir, json_output_dir):
             return
 
         # --- 2. 使用 OpenCV 进行绘图 ---
-        cv_img = pil_to_cv2(original_img)
+        # 使用预处理后的图片进行绘图，确保坐标对应
+        cv_img = pil_to_cv2(processed_img)
         height, width = cv_img.shape[:2]
         
         data_list = ocr_result if isinstance(ocr_result, list) else ocr_result.get("data", [])
