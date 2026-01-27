@@ -20,7 +20,11 @@ def get_ocr_result(local_path):
             # 开启图像自动转正功能
             "enable_rotate": True},
             # 当ocr_options中的task字段设置为高精识别时，模型会以下面text字段中的内容作为Prompt，不支持用户自定义
-            {"text": "定位所有的文字行，并且以json格式返回旋转矩形([x1, y1, x2, y2])的坐标结果。其中x1,y1是文字行的左上角坐标，x2,y2是文字行的右下角坐标"}]
+            {"text": '''定位所有的文字行，并且以json格式返回旋转矩形([x1, y1, x2, y2])的坐标结果。 返回格式必须是纯 JSON 列表，格式如下：
+           [
+             {"text": "文本内容", "box": [xmin, ymin, xmax, ymax]},
+             ...
+           ]其中x1,y1是文字行的左上角坐标，x2,y2是文字行的右下角坐标'''}]
     }]
 
     response = dashscope.MultiModalConversation.call(
