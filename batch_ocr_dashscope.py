@@ -36,23 +36,23 @@ def get_ocr_result(local_path):
                 "enable_rotate": True
             },
             {
-                "text": '''定位所有的文字行，并且以json格式返回旋转矩形([x1, y1, x2, y2])的坐标结果。
-                 返回格式必须是纯 JSON 列表，格式如下：
-           [
-             {"text": "文本内容", "box": [xmin, ymin, xmax, ymax]},
-             ...
-           ]其中x1,y1是文字行的左上角坐标，x2,y2是文字行的右下角坐标'''
+                "text": "定位所有的文字行"
             }
         ]
     }]
 
-    # 调用模型
-    # 注意：model='qwen-vl-ocr-2025-08-28' 和 task='advanced_recognition' 是关键
-    response = MultiModalConversation.call(
-        model='qwen-vl-ocr-2025-08-28',
-        messages=messages,
-        ocr_options={"task": "advanced_recognition"}
-    )
+    try:
+        # 调用模型
+        # 注意：model='qwen-vl-ocr-2025-08-28' 和 task='advanced_recognition' 是关键
+        response = MultiModalConversation.call(
+            model='qwen-vl-ocr-2025-08-28',
+            messages=messages,
+            ocr_options={"task": "advanced_recognition"}
+        )
+    except Exception as e:
+        print(f"\n[Network Error] API 调用失败: {e}")
+        print("请检查网络连接或 DNS 设置 (Unable to resolve dashscope.aliyuncs.com)")
+        return None
     
     if response.status_code == 200:
         if "ocr_result" in response.output.choices[0].message.content[0]:
